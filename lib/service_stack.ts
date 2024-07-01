@@ -1,4 +1,4 @@
-import {Stack, StackProps} from 'aws-cdk-lib';
+import {Duration, Stack, StackProps} from 'aws-cdk-lib';
 import {Construct} from 'constructs';
 import {Vpc} from "aws-cdk-lib/aws-ec2";
 import {AwsLogDriver, Cluster, Compatibility, ContainerImage, TaskDefinition} from "aws-cdk-lib/aws-ecs";
@@ -9,6 +9,7 @@ import {AttributeType, Table} from "aws-cdk-lib/aws-dynamodb";
 
 const CPU_UTILIZATION = '256';
 const MEMORY_UTILIZATION = '512';
+const IMAGE_TAG = 'latest';
 
 export interface EnvironmentVariable {
   name: string,
@@ -23,8 +24,9 @@ export class ServiceStack extends Stack {
   constructor(scope: Construct, id: string, props: ServiceStackProps) {
     super(scope, id, props);
 
-    const repository = new Repository(this, `${id.toLowerCase()}_repo`, {
-      repositoryName: `${id.toLowerCase()}_repo`
+    const repoName = `${id.toLowerCase()}_repo`;
+    new Repository(this, `${id.toLowerCase()}_repo`, {
+      repositoryName: repoName
     });
 
     const vpc = new Vpc(this, `${id}-vpc`, {
@@ -53,7 +55,10 @@ export class ServiceStack extends Stack {
     });
 
     const container = taskDefinition.addContainer(`${id}-application-container`, {
-      image: ContainerImage.fromRegistry(`${repository.repositoryName}:latest`),
+      image: ContainerImage.fromEcrRepository(
+          Repository.fromRepositoryName(this, `${id}-IRepo`, repoName),
+          IMAGE_TAG
+      ),
       logging: new AwsLogDriver({
         streamPrefix: `${id}-application-logs`
       })
@@ -67,11 +72,24 @@ export class ServiceStack extends Stack {
       containerPort: 8080
     });
 
-    new ApplicationLoadBalancedFargateService(this, `${id}-application-service`, {
+    const applicationLoadBalancedService = new ApplicationLoadBalancedFargateService(this, `${id}-application-service`, {
       cluster,
       taskDefinition,
       publicLoadBalancer: true
     });
+
+    /**
+     * Even with a health check grace period of 60 seconds, deployments were constantly failing. I think the reason
+     * being a health check grace period will stop the ECS service from killing the task on startup if the target group
+     * reports a task is unhealthy, but it won't get the target group to perform more health checks after determining
+     * the task is unhealthy. This allows new deployments to have time before being deemed unhealthy.
+     */
+    applicationLoadBalancedService.targetGroup.configureHealthCheck({
+      timeout: Duration.seconds(10),
+      healthyThresholdCount: 3,
+      unhealthyThresholdCount: 10,
+      interval: Duration.seconds(60)
+    })
 
     const dynamoDbTable = new Table(this, `${id}-dynamo-table`, {
       tableName: `${id.toLowerCase()}_products_table`,
