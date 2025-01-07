@@ -14,10 +14,45 @@ exit_on_failure() {
   fi
 }
 
-read -p "AWS region: " region
-read -p "AWS account id: " account_id
-read -p "Docker image and tag [image:tag]: " image_and_tag
-read -p "AWS ECR repo name: " ecr_repo
+declare region=""
+declare account_id=""
+declare image_and_tag=""
+declare ecr_repo=""
+
+usage() {
+    echo "Usage: $0 --region <region> --account_id <account_id> --image_and_tag <image:tag> --ecr_repo <repo_name>"
+    exit 1
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --region)
+            region="$2"
+            shift 2
+            ;;
+        --account_id)
+            account_id="$2"
+            shift 2
+            ;;
+        --image_and_tag)
+            image_and_tag="$2"
+            shift 2
+            ;;
+        --ecr_repo)
+            ecr_repo="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown argument: $1"
+            usage
+            ;;
+    esac
+done
+
+if [[ -z "$region" || -z "$account_id" || -z "$image_and_tag" || -z "$ecr_repo" ]]; then
+    echo "Error: Missing required arguments."
+    usage
+fi
 
 if [[ $image_and_tag =~ ^[a-zA-Z0-9._/-]+:[a-zA-Z0-9._/-]+$ ]]; then
   echo "The input '$image_and_tag' is in the correct format."

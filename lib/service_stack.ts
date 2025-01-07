@@ -1,7 +1,14 @@
 import {Duration, Stack, StackProps} from 'aws-cdk-lib';
 import {Construct} from 'constructs';
 import {Vpc} from "aws-cdk-lib/aws-ec2";
-import {AwsLogDriver, Cluster, Compatibility, ContainerImage, TaskDefinition} from "aws-cdk-lib/aws-ecs";
+import {
+  AwsLogDriver,
+  Cluster,
+  Compatibility,
+  ContainerImage,
+  CpuArchitecture, OperatingSystemFamily,
+  TaskDefinition
+} from "aws-cdk-lib/aws-ecs";
 import {Repository} from "aws-cdk-lib/aws-ecr";
 import {ApplicationLoadBalancedFargateService} from "aws-cdk-lib/aws-ecs-patterns";
 import {ManagedPolicy, Role, ServicePrincipal} from "aws-cdk-lib/aws-iam";
@@ -18,16 +25,12 @@ export interface EnvironmentVariable {
 
 export interface ServiceStackProps extends StackProps {
   environmentVariables: EnvironmentVariable[];
+  repositoryName: string;
 }
 
 export class ServiceStack extends Stack {
   constructor(scope: Construct, id: string, props: ServiceStackProps) {
     super(scope, id, props);
-
-    const repoName = `${id.toLowerCase()}_repo`;
-    new Repository(this, `${id.toLowerCase()}_repo`, {
-      repositoryName: repoName
-    });
 
     const vpc = new Vpc(this, `${id}-vpc`, {
       maxAzs: 3
@@ -39,7 +42,7 @@ export class ServiceStack extends Stack {
         ManagedPolicy.fromAwsManagedPolicyName(
             "service-role/AmazonECSTaskExecutionRolePolicy"
         ),
-      ]
+      ManagedPolicy.fromAwsManagedPolicyName("AmazonDynamoDBFullAccess"),]
     })
 
     const cluster = new Cluster(this, `${id}-ecs-cluster`, {
@@ -51,12 +54,16 @@ export class ServiceStack extends Stack {
       cpu: CPU_UTILIZATION,
       memoryMiB: MEMORY_UTILIZATION,
       compatibility: Compatibility.FARGATE,
+      runtimePlatform: {
+        cpuArchitecture: CpuArchitecture.ARM64,
+        operatingSystemFamily: OperatingSystemFamily.LINUX
+      },
       taskRole
     });
 
     const container = taskDefinition.addContainer(`${id}-application-container`, {
       image: ContainerImage.fromEcrRepository(
-          Repository.fromRepositoryName(this, `${id}-IRepo`, repoName),
+          Repository.fromRepositoryName(this, `${id}-IRepo`, props.repositoryName),
           IMAGE_TAG
       ),
       logging: new AwsLogDriver({
@@ -75,6 +82,9 @@ export class ServiceStack extends Stack {
     const applicationLoadBalancedService = new ApplicationLoadBalancedFargateService(this, `${id}-application-service`, {
       cluster,
       taskDefinition,
+      circuitBreaker: {
+        rollback: true
+      },
       publicLoadBalancer: true
     });
 
