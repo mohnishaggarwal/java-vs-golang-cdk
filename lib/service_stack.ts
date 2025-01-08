@@ -1,4 +1,4 @@
-import {Duration, Stack, StackProps} from 'aws-cdk-lib';
+import {Duration, RemovalPolicy, Stack, StackProps} from 'aws-cdk-lib';
 import {Construct} from 'constructs';
 import {Vpc} from "aws-cdk-lib/aws-ec2";
 import {
@@ -6,13 +6,14 @@ import {
   Cluster,
   Compatibility,
   ContainerImage,
-  CpuArchitecture, OperatingSystemFamily,
+  CpuArchitecture,
+  OperatingSystemFamily,
   TaskDefinition
 } from "aws-cdk-lib/aws-ecs";
 import {Repository} from "aws-cdk-lib/aws-ecr";
 import {ApplicationLoadBalancedFargateService} from "aws-cdk-lib/aws-ecs-patterns";
 import {ManagedPolicy, Role, ServicePrincipal} from "aws-cdk-lib/aws-iam";
-import {AttributeType, Table} from "aws-cdk-lib/aws-dynamodb";
+import {AttributeType, BillingMode, Table} from "aws-cdk-lib/aws-dynamodb";
 
 const CPU_UTILIZATION = '256';
 const MEMORY_UTILIZATION = '512';
@@ -41,8 +42,8 @@ export class ServiceStack extends Stack {
       managedPolicies: [
         ManagedPolicy.fromAwsManagedPolicyName(
             "service-role/AmazonECSTaskExecutionRolePolicy"
-        ),
-      ManagedPolicy.fromAwsManagedPolicyName("AmazonDynamoDBFullAccess"),]
+        )
+      ]
     })
 
     const cluster = new Cluster(this, `${id}-ecs-cluster`, {
@@ -103,7 +104,12 @@ export class ServiceStack extends Stack {
 
     const dynamoDbTable = new Table(this, `${id}-dynamo-table`, {
       tableName: `${id.toLowerCase()}_products_table`,
-      partitionKey: {name: 'Id', type: AttributeType.STRING}
+      partitionKey: {name: 'Id', type: AttributeType.STRING},
+      billingMode: BillingMode.PROVISIONED,
+      removalPolicy: RemovalPolicy.DESTROY,
+      // Very high to allow high TPS.
+      readCapacity: 150,
+      writeCapacity: 150,
     })
     dynamoDbTable.grantReadWriteData(taskRole);
   }
